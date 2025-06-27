@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Tuple, cast
 
 import anthropic
+import google.generativeai as genai
 import openai
 from anthropic import (
     NOT_GIVEN as Anthropic_NOT_GIVEN,
@@ -597,11 +598,67 @@ class OpenAIDirectClient(LLMClient):
         return augment_messages, message_metadata
 
 
+class GeminiDirectClient(LLMClient):
+    """Use Google Gemini models via Generative AI API."""
+    def __init__(self, model_name: str = "gemini-1.5-flash-latest", max_retries: int = 2):
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable not set.")
+        genai.configure(api_key=api_key)
+        self.model_name = model_name
+        self.max_retries = max_retries
+        self.client = genai.GenerativeModel(model_name)
+
+    def generate(
+        self,
+        messages: LLMMessages,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+        tools: list[ToolParam] = [],
+        tool_choice: dict[str, str] | None = None,
+        thinking_tokens: int | None = None,
+    ) -> Tuple[list[AssistantContentBlock], dict[str, Any]]:
+        """Generate responses using Gemini."""
+        # Gemini does not support tools natively yet in python SDK, so we ignore tools/tool_choice
+        # Flatten messages to a single prompt string
+        prompt = ""
+        if system_prompt:
+            prompt += f"[SYSTEM PROMPT]\n{system_prompt}\n"
+        for message_list in messages:
+            for message in message_list:
+                if isinstance(message, TextPrompt):
+                    prompt += f"[USER]: {message.text}\n"
+                elif isinstance(message, TextResult):
+                    prompt += f"[ASSISTANT]: {message.text}\n"
+        response = None
+        for retry in range(self.max_retries):
+            try:
+                response = self.client.generate_content(
+                    prompt,
+                    generation_config={
+                        "max_output_tokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                )
+                break
+            except Exception as e:
+                if retry == self.max_retries - 1:
+                    raise e
+                time.sleep(2 * random.uniform(0.8, 1.2))
+        text = response.text if hasattr(response, "text") else str(response)
+        augment_messages = [TextResult(text=text)]
+        message_metadata = {"raw_response": response}
+        return augment_messages, message_metadata
+
+
 def get_client(client_name: str, **kwargs) -> LLMClient:
     """Get a client for a given client name."""
     if client_name == "anthropic-direct":
         return AnthropicDirectClient(**kwargs)
     elif client_name == "openai-direct":
         return OpenAIDirectClient(**kwargs)
+    elif client_name == "gemini-direct":
+        return GeminiDirectClient(**kwargs)
     else:
         raise ValueError(f"Unknown client name: {client_name}")

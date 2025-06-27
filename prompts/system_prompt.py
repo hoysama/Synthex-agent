@@ -13,6 +13,7 @@ Guidelines:
 - When possible, choose the simpler solution.
 - Use your bash tool to set up any necessary environment variables, such as those needed to run tests.
 - You should run relevant tests to verify that your changes work.
+- create Changelog in docs folder if it is not present.
 
 Make sure to call the complete tool when you are done with the task, or when you have an answer to the question.
 """
